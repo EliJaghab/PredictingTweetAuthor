@@ -1,0 +1,160 @@
+---
+title: "CSC8491_Final_TweetAuthor_Jaghab"
+output: html_notebook
+---
+
+#2.2 Determining the Author
+#Read in File
+```{r}
+tweets_raw <- read.csv(file = "/Users/eli/Desktop/Data\ Mining\ and\ DB\ Programming/Final/tweets.csv", stringsAsFactors = FALSE, encoding="UTF-8")
+```
+
+#Examine the Structure of the Raw Data
+```{r}
+str(tweets_raw)
+summary(tweets_raw)
+```
+he
+#Keep Test Set Actual Values for Final Comparison
+```{r}
+set.seed(01618670)
+trainRows <- sample(1:nrow(tweets_raw), trainPct * nrow(tweets_raw))
+tweetsTestComp <- tweets_raw[-trainRows, ]
+```
+
+#Convert User to Factor
+```{r}
+tweets_raw$name <- factor(tweets_raw$name)
+```
+
+#Ensure Factor Conversion and Examine Distributioun of Data Set
+```{r}
+str(tweets_raw$name)
+table(tweets_raw$name)
+```
+
+#Build and Examine VCorpus (body of docs)
+```{r}
+library(tm)
+#Convert Text Column in Multibyte Form to UTF8 Form https://stackoverflow.com/questions/26751797/r-invalid-multibyte-string-1
+tweets_raw$text <- iconv(enc2utf8(tweets_raw$text),sub="byte")
+tweets_corpus <- VCorpus(VectorSource(tweets_raw$text))
+print(tweets_corpus)
+#Check First Tweet in Corpus
+as.character(tweets_corpus[[1]])
+```
+
+
+#Clean Data
+```{r}
+#Remove URLs
+#https://stackoverflow.com/questions/31702488/text-mining-with-tm-package-in-r-remove-words-starting-from-http-or-any-other
+#https://stackoverflow.com/questions/25352448/remove-urls-from-string
+toSpace = content_transformer(function(x, pattern) gsub(pattern," ",x) )
+tweets_corpus_clean <- tm_map(tweets_corpus, toSpace, "(f|ht)tp\\S+\\s*")
+#Lowercase all Characters
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, content_transformer(tolower))
+#Remove Punctuation
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, removePunctuation)
+#Remove Numbers
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, removeNumbers)
+#Remove Whitespace
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, stripWhitespace)
+#Remove Stopwords and 'amp'
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, removeWords, c(stopwords("english"), "amp"))
+```
+
+#Examine Cleaned Corpus
+```{r}
+as.character(tweets_corpus[[1]])
+as.character(tweets_corpus_clean[[1]])
+lapply(tweets_corpus[1:3], as.character)
+lapply(tweets_corpus_clean[1:3], as.character)
+```
+
+#Create DocumentTermMatrix
+```{r}
+tweets_dtm <- DocumentTermMatrix(tweets_corpus_clean)
+tweets_dtm
+```
+
+#Training and Test Data Sets
+```{r}
+#Villanova ID Number Seed
+set.seed(01618670)
+
+#Training Data Percentage
+trainPct <- 0.8
+
+#Create Training and Test Data Sets
+trainRows <- sample(1:nrow(tweets_dtm), trainPct * nrow(tweets_dtm))
+tweetsDtmTrain <- tweets_dtm[trainRows, ]
+tweetsDtmTest <- tweets_dtm[-trainRows, ]
+
+#Save Labels
+tweetsTrainLabels <- tweets_raw[trainRows, ]$name
+tweetsTestLabels <- tweets_raw[-trainRows, ]$name
+
+#Look at Percent of Data in Training and Test Data
+prop.table(table(tweetsTrainLabels))
+prop.table(table(tweetsTestLabels))
+```
+
+#Create Vector of Frequently Occuring Words and Document Matrix
+```{r}
+#Save Frequently Appearing Terms to a Character Vector
+tweetsFreqWords <- findFreqTerms(tweetsDtmTrain, 5)
+str(tweetsFreqWords)
+
+#Create Document Term Matrixes for Only the Freq Terms
+tweets_dtm_freq_train <- tweetsDtmTrain[ , tweetsFreqWords]
+tweets_dtm_freq_test <- tweetsDtmTest[ , tweetsFreqWords]
+
+#Inspect DTM
+inspect(tweets_dtm_freq_train)
+
+#Convert Term Count to Presence Indicator
+convertCounts <- function(x) {
+  return (ifelse(x>0, "Yes", "No"))
+}
+
+#Apply Convert Counts to Columns of Train and Test Data Sets
+tweetsTrain <- apply(tweets_dtm_freq_train, MARGIN = 2, convertCounts)
+tweetsTest <- apply(tweets_dtm_freq_test, MARGIN = 2, convertCounts)
+```
+
+#Build Naive Bayes Model
+```{r}
+library(e1071)
+set.seed(01618670)
+tweets_classifierN <- naiveBayes(tweetsTrain, tweetsTrainLabels)
+
+#Evaluate Model Performance
+tweetsTestPredN <- predict(tweets_classifierN, tweetsTest)
+
+#Examine Confusion Matrix
+library(caret)
+naiveMatrix <- confusionMatrix(tweetsTestPredN, as.factor(tweetsTestLabels), mode = "prec_recall")
+naiveMatrix
+```
+#•	A table showing how your predictions compared to the actual values in the test set
+data.frame(tweetsTestPredN, tweetsTestComp$name)
+
+#•	Your calculation of the % of tweets in the test set you classified correctly
+
+#The accuracy of the random forest model is 83.94%. This means that the model correctly classified this percentage of tweets. 
+
+#•	A written description of why you took the approach you took (between a few paragraphs and one page)
+
+#First I read in and analyzed the raw data. I create a variable to compare to the prediction values I get from the test set. Then I examine the distribution of the data which was equal for each author. 
+
+#I then build and examine a Vcorpus which is a body of docs to hold the all of the tweets. I then examine the first tweet in the corpus to see the format of the tweet. I decide to remove any data that will not contribute to identifying the author. This includes urls, punctuation, white space, numbers and the word ‘amp.’ I also lower case all the letters of each tweet. After cleaning the data, I compare the cleaned tweet to the original and am satisfied with the changes.
+
+#Then I create a document matrix which uses all of the words tweeted and uses these as headers on the x axis and on the y axis are the tweet numbers and whether or not the word is included in the tweet. I build a training and test data set out of this document matrix and create a vector of frequently occurring words. After this, I convert each value to either yes or no depending on whether the word is included in the tweet. 
+
+#Finally, I run the Naive Bayes Model on the training set and run a prediction on the test set to get the matrix of the model. After running the model, I receive a score of 84% accuracy. This model did the best job in precision for Donald Trump with 90%. This means that the model had a small number of false positives for him. This makes sense because Trump’s tweets are typically distinct and most likely stood out against the other authors. On the other hand, Barry had the highest Recall score with 92%. This means that the model identified a small number of false negatives associated with Barry. 
+
+
+
+
+
