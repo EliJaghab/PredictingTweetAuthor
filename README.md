@@ -1,4 +1,4 @@
-# PredictingTweetAuthor
+# Predicting the Author of a Tweet
 
 This R Notebook uses a Naive Bayes model to predict the author of a tweet.
 
